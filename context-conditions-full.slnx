@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="context-conditions-full/context-conditions-full.vcxproj" Id="95ef9b5e-8ade-4861-87ed-43708d9987bb" />
+</Solution>
