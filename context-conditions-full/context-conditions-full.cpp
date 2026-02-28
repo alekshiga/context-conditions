@@ -538,7 +538,6 @@ public:
     }
 
     void CheckUnusedVariables() {
-        cout << "\nОшибки в использовании переменных:" << endl;
         bool hasUnused = false;
 
         for (const auto& var : variableUsed) {
@@ -861,7 +860,6 @@ public:
 
     // Функция для проверки вызовов функций после их объявления
     void CheckFunctionCalls() {
-        cout << "\nОшибки в вызовах функций:" << endl;
 
         for (const auto& call : functionCalls) {
             Tree* func = FindParent(globalRoot, call.name);
@@ -1256,11 +1254,32 @@ public:
             }
 
             // Присваивание
-            /*if (lex.type == typeAssign && i > 0 && i + 1 < lexemes.size()) {
+            if (lex.type == typeAssign && i > 0 && i + 1 < lexemes.size()) {
+
+                int leftPos = i - 1;
+
+                // Смотрим, что слева не переменная а функция
+                if (leftPos >= 0 && lexemes[leftPos].type == typeRightBracket) {
+                    int bracketDepth = 1;
+                    int j = leftPos - 1;
+                    while (j >= 0 && bracketDepth > 0) {
+                        if (lexemes[j].type == typeRightBracket) bracketDepth++;
+                        else if (lexemes[j].type == typeLeftBracket) bracketDepth--;
+                        j--;
+                    }
+                    if (j >= 0 && (lexemes[j].type == typeIdentifier || lexemes[j].type == typeReservedMain)) {
+                        // Это вызов функции слева от присваивания
+                        cerr << "Семантическая ошибка: результату функции нельзя присвоить значение'"
+                            << lexemes[j].value << "' [строка " << lex.line << "]" << endl;
+                        continue;
+                    }
+                }
+
+                
                 if (lexemes[i - 1].type == typeIdentifier) {
                     string varName = lexemes[i - 1].value;
 
-                    // Нельзя присвоить функции значение
+                    // Проверяем, не функция ли это
                     Tree* leftNode = FindParent(cur, varName);
                     if (leftNode && leftNode->n && leftNode->n->isFunction) {
                         cerr << "Семантическая ошибка: функции нельзя присваивать значение '"
@@ -1268,6 +1287,7 @@ public:
                         continue;
                     }
 
+                    // Это обычная переменная
                     MarkVariableInitialized(varName);
 
                     if (i + 1 < lexemes.size()) {
@@ -1279,7 +1299,7 @@ public:
                         CheckTypeCompatibility(leftType, rightType, "=", lex.line, lex.col, true);
                     }
                 }
-            }*/
+            }
 
             // Возврат из функции
             if (lex.type == typeReservedReturn) {
@@ -1423,7 +1443,6 @@ public:
     }
 
     void CheckFunctionReturns() {
-        cout << "\nВозвращаемые значения" << endl;
 
         Tree* global = GetGlobalScope();
         Tree* current = global->left;
