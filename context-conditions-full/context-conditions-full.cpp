@@ -526,8 +526,12 @@ public:
             return;
         }
 
+        Tree* varNode = FindVariableInTree(varName);
+        if (varNode && varNode->n && varNode->n->isFunction) {
+            return;
+        }
+
         if (!IsVariableInitialized(varName)) {
-            Tree* varNode = FindVariableInTree(varName);
             if (varNode && varNode->n && varNode->n->isParameter) {
                 return;
             }
@@ -811,48 +815,58 @@ public:
     // Функция для получения типов аргументов функции
     vector<DATA_TYPE> GetFunctionArgumentTypes(int startPos, int line) {
         vector<DATA_TYPE> argTypes;
+
+        if (startPos >= lexemes.size() || lexemes[startPos].type != typeLeftBracket) {
+            return argTypes;
+        }
+
         int bracketDepth = 1;
-        int i = startPos;
-
-        if (i >= lexemes.size() || lexemes[i].type != typeLeftBracket) {
-            return argTypes;
-        }
-
-        i++; // Пропускаем '('
-
-        // Если сразу закрывающая скобка - нет аргументов
-        if (i < lexemes.size() && lexemes[i].type == typeRightBracket) {
-            return argTypes;
-        }
+        int i = startPos + 1; // Позиция после '('
+        int argStart = i;
 
         while (i < lexemes.size() && bracketDepth > 0) {
-            if (lexemes[i].type == typeLeftBracket) {
+            LexemeType currentType = lexemes[i].type;
+
+            if (currentType == typeLeftBracket) {
                 bracketDepth++;
-                i++;
-                continue;
             }
-            else if (lexemes[i].type == typeRightBracket) {
+            else if (currentType == typeRightBracket) {
                 bracketDepth--;
-                i++;
-                continue;
+
+                if (bracketDepth == 0) {
+                    // Обрабатываем последний аргумент перед закрывающей скобкой
+                    if (argStart < i) {
+                        // Проверяем, не пустой ли аргумент (случай "()")
+                        bool hasContent = false;
+                        for (int k = argStart; k < i; k++) {
+                            if (lexemes[k].type != typeComma) {
+                                hasContent = true;
+                                break;
+                            }
+                        }
+
+                        if (hasContent) {
+                            DATA_TYPE argType = GetExpressionType(argStart, line);
+                            if (argType != TYPE_UNKNOWN) {
+                                argTypes.push_back(argType);
+                            }
+                        }
+                    }
+                    break;
+                }
             }
-            else if (lexemes[i].type == typeComma) {
-                i++;
-                continue;
+            else if (currentType == typeComma && bracketDepth == 1) {
+                // Запятая на верхнем уровне - разделитель аргументов
+                if (argStart < i) {
+                    DATA_TYPE argType = GetExpressionType(argStart, line);
+                    if (argType != TYPE_UNKNOWN) {
+                        argTypes.push_back(argType);
+                    }
+                }
+                argStart = i + 1;
             }
 
-            // Определяем тип аргумента
-            DATA_TYPE argType = GetExpressionType(i, line);
-            if (argType != TYPE_UNKNOWN) {
-                argTypes.push_back(argType);
-            }
-
-            // Пропускаем выражение до запятой или закрывающей скобки
-            while (i < lexemes.size() &&
-                lexemes[i].type != typeComma &&
-                lexemes[i].type != typeRightBracket) {
-                i++;
-            }
+            i++;
         }
 
         return argTypes;
@@ -1182,10 +1196,10 @@ public:
                 bool isFunctionCall = (i + 1 < lexemes.size() && lexemes[i + 1].type == typeLeftBracket);
 
                 if (isFunctionCall) {
-
+                    // Получаем типы аргументов функции - передаем позицию открывающей скобки
                     vector<DATA_TYPE> argTypes = GetFunctionArgumentTypes(i + 1, lex.line);
 
-                    // Сохраняем информацию о вызове
+                    // Сохраняем информацию о вызове функции
                     FunctionCallInfo callInfo;
                     callInfo.name = id;
                     callInfo.line = lex.line;
@@ -1193,29 +1207,36 @@ public:
                     callInfo.argTypes = argTypes;
                     functionCalls.push_back(callInfo);
 
-                    // Проверяем существование функции
+                    // Проверяем, существует ли функция
                     Tree* func = SemGetFunct(id, lex.line, lex.col);
 
                     if (func && func->n) {
-                        if (func->n->paramCount != argTypes.size()) {
-                            cerr << "Семантическая ошибка: неверное количество параметров у функции '"
+                        // Функция найдена - проверяем параметры
+                        if (func->n->paramCount != static_cast<int>(argTypes.size())) {
+                            cerr << "Семантическая ошибка: неверное количество аргументов при вызове функции '"
                                 << id << "' (ожидалось " << func->n->paramCount
                                 << ", получено " << argTypes.size() << ") [строка " << lex.line << "]" << endl;
                         }
                         func->n->isUsed = true;
                     }
 
-                    // Пропускаем вызов функции
+                    // Пропускаем вызов функции (включая все вложенные вызовы)
                     int bracketDepth = 1;
-                    int j = i + 2;
+                    int j = i + 2; // Начинаем после '('
                     while (j < lexemes.size() && bracketDepth > 0) {
-                        if (lexemes[j].type == typeLeftBracket) bracketDepth++;
-                        else if (lexemes[j].type == typeRightBracket) bracketDepth--;
+                        if (lexemes[j].type == typeLeftBracket) {
+                            bracketDepth++;
+                        }
+                        else if (lexemes[j].type == typeRightBracket) {
+                            bracketDepth--;
+                            if (bracketDepth == 0) {
+                                j++;
+                                break;
+                            }
+                        }
                         j++;
                     }
                     i = j - 1;
-
-                    // ВАЖНО: этот continue предотвращает попадание в секцию переменных
                     continue;
                 }
 
@@ -1383,7 +1404,17 @@ public:
     DATA_TYPE GetExpressionType(int startPos, int line) {
         if (startPos >= lexemes.size()) return TYPE_UNKNOWN;
 
-        Lexeme& lex = lexemes[startPos];
+        // Пропускаем унарные операторы
+        int pos = startPos;
+        while (pos < lexemes.size() &&
+            (lexemes[pos].type == typePlus || lexemes[pos].type == typeMinus ||
+                lexemes[pos].type == typeBitNot)) {
+            pos++;
+        }
+
+        if (pos >= lexemes.size()) return TYPE_UNKNOWN;
+
+        Lexeme& lex = lexemes[pos];
 
         // Проверяем константы
         if (lex.type == constDec || lex.type == constHex) {
@@ -1396,34 +1427,41 @@ public:
             return TYPE_BOOL;
         }
         else if (lex.type == typeIdentifier) {
-            // Проверяем переменную
-            string varName = lex.value;
-            Tree* varNode = FindVariableInTree(varName);
+            string id = lex.value;
+
+            // Проверяем, является ли это вызовом функции
+            if (pos + 1 < lexemes.size() && lexemes[pos + 1].type == typeLeftBracket) {
+                Tree* funcNode = FindParent(globalRoot, id);
+                if (funcNode && funcNode->n && funcNode->n->isFunction) {
+                    return funcNode->n->ReturnType;
+                }
+                return TYPE_UNKNOWN;
+            }
+
+            // Иначе это переменная
+            Tree* varNode = FindVariableInTree(id);
             if (varNode && varNode->n) {
                 return varNode->n->DataType;
             }
 
-            // Проверяем, не является ли это вызовом функции
-            if (startPos + 1 < lexemes.size() && lexemes[startPos + 1].type == typeLeftBracket) {
-                Tree* funcNode = FindParent(globalRoot, varName);
-                if (funcNode && funcNode->n && funcNode->n->isFunction) {
-                    return funcNode->n->ReturnType;
-                }
-            }
+            return TYPE_UNKNOWN;
         }
         else if (lex.type == typeLeftBracket) {
-            // Пропускаем выражение в скобках
+            // Выражение в скобках
             int bracketDepth = 1;
-            int j = startPos + 1;
+            int j = pos + 1;
             while (j < lexemes.size() && bracketDepth > 0) {
                 if (lexemes[j].type == typeLeftBracket) bracketDepth++;
                 else if (lexemes[j].type == typeRightBracket) bracketDepth--;
                 j++;
             }
-            // Возвращаем тип выражения внутри скобок
-            if (j > startPos + 1) {
-                return GetExpressionType(startPos + 1, line);
+            if (j > pos + 1) {
+                return GetExpressionType(pos + 1, line);
             }
+        }
+        else {
+            // Если начинается с оператора или чего-то ещё, пробуем определить тип по первому операнду
+            return TYPE_INT; // Для арифметических операций по умолчанию int
         }
 
         return TYPE_UNKNOWN;
@@ -1711,11 +1749,11 @@ public:
                 return true;
             }
 
-            if (showError && line > 0) {
+            /*if (showError && line > 0) {
                 cerr << "Семантическая ошибка: несоответствие типов при присваивании '"
                     << GetTypeString(type1) << "' = '" << GetTypeString(type2)
                     << "' [строка " << line << "]" << endl;
-            }
+            }*/
             return false;
         }
 
@@ -1961,4 +1999,3 @@ int main() {
     delete analyzer;
     return 0;
 }
-
