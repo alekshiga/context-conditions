@@ -1220,10 +1220,10 @@ public:
                         func->n->isUsed = true;
                     }
 
-                    // Пропускаем вызов функции (включая все вложенные вызовы)
                     int bracketDepth = 1;
                     int j = i + 2; // Начинаем после '('
                     while (j < lexemes.size() && bracketDepth > 0) {
+                        LexemeType current = lexemes[j].type;
                         if (lexemes[j].type == typeLeftBracket) {
                             bracketDepth++;
                         }
@@ -1234,6 +1234,38 @@ public:
                                 break;
                             }
                         }
+                        else if (current == typeIdentifier && j + 1 < lexemes.size() && lexemes[j + 1].type == typeLeftBracket) {
+                            string nestedFuncName = lexemes[i].value;
+                            vector<DATA_TYPE> nestedArgTypes = GetFunctionArgumentTypes(j + 1, lexemes[j].line);
+                            FunctionCallInfo nestedCall;
+                            nestedCall.name = nestedFuncName;
+                            nestedCall.line = lexemes[j].line;
+                            nestedCall.col = lexemes[j].col;
+                            nestedCall.argTypes = nestedArgTypes;
+
+                            functionCalls.push_back(nestedCall);
+
+                            Tree* nestedFunc = SemGetFunct(nestedFuncName, lexemes[j].line, lexemes[j].col);
+                            if (nestedFunc && nestedFunc->n) {
+                                if (nestedFunc->n->paramCount != static_cast<int>(nestedArgTypes.size())) {
+                                    cerr << "Семантическая ошибка: неверное количество аргументов при вызове функции '" <<
+                                        nestedFuncName << "' (ожидалось " << nestedFunc->n->paramCount << ", получено " <<
+                                        nestedArgTypes.size() << ") [строка " << lexemes[j].line << "]" << endl;
+                                }
+                                nestedFunc->n->isUsed = true;
+                            }
+                            /*int nestedDepth = 1;
+                            int nestedPos = j + 2;
+                            while (nestedPos < lexemes.size() && nestedDepth > 0) {
+                                if (lexemes[nestedPos].type == typeLeftBracket) nestedDepth++;
+                                else if (lexemes[nestedPos].type == typeRightBracket) nestedDepth--;
+                                nestedPos++;
+                            }
+
+                            j = nestedPos;
+                            continue;*/
+                        }
+
                         j++;
                     }
                     i = j - 1;
@@ -1290,13 +1322,13 @@ public:
                     }
                     if (j >= 0 && (lexemes[j].type == typeIdentifier || lexemes[j].type == typeReservedMain)) {
                         // Это вызов функции слева от присваивания
-                        cerr << "Семантическая ошибка: результату функции нельзя присвоить значение'"
-                            << lexemes[j].value << "' [строка " << lex.line << "]" << endl;
+                        cerr << "Семантическая ошибка: результату функции нельзя присвоить значение"
+                            << " [строка " << lex.line << "]" << endl;
                         continue;
                     }
                 }
 
-                
+
                 if (lexemes[i - 1].type == typeIdentifier) {
                     string varName = lexemes[i - 1].value;
 
